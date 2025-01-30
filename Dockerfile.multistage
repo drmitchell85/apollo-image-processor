@@ -1,0 +1,31 @@
+# tell Docker what base image to use
+FROM golang:1.23 AS build-stage
+
+# create a directory inside the image that we are building
+WORKDIR /app
+
+# copy our mod and sum files
+COPY go.mod go.sum ./
+
+# install modules in the image
+RUN go mod download
+
+# copy source code into the image
+COPY . .
+
+# compile the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o /apollo-image-processor ./cmd/api
+
+# Deploy the application binary into a lean image
+FROM gcr.io/distroless/base-debian11 AS build-release-stage
+
+WORKDIR /
+
+COPY --from=build-stage /apollo-image-processor /apollo-image-processor
+
+EXPOSE 8080
+
+USER nonroot:nonroot
+
+# tell docker what to run when image starts in the container
+CMD ["/apollo-image-processor"]

@@ -39,11 +39,11 @@ func NewServer() (*Server, error) {
 		dbname:     os.Getenv("DB_NAME"),
 	}
 
-	db, err := initDB(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	}
-	server.Db = db
+	// db, err := initDB(config)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to initialize database: %w", err)
+	// }
+	// server.Db = db
 
 	api, err := initApiService(config)
 	if err != nil {

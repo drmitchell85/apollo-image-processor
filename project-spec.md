@@ -34,27 +34,37 @@
 ### PostgreSQL Tables
 ```sql
 -- Batches
-CREATE TABLE batches (
-    id UUID PRIMARY KEY,
-    status VARCHAR(20),
-    created_at TIMESTAMP,
-    completed_at TIMESTAMP,
-    total_images INT,
-    processed_images INT
+CREATE TABLE public.batches (
+	batch_id uuid NOT NULL,
+	status public."batch_status" NOT NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	completed_at timestamp NULL,
+	total_images int4 DEFAULT 0 NOT NULL,
+	processed_images int4 DEFAULT 0 NOT NULL,
+	CONSTRAINT batches_pk PRIMARY KEY (batch_id)
 );
+CREATE INDEX idx_batches_created_at ON public.batches USING btree (created_at);
+CREATE INDEX idx_batches_status ON public.batches USING btree (status);
 
 -- Images
-CREATE TABLE images (
-    id UUID PRIMARY KEY,
-    batch_id UUID REFERENCES batches(id),
-    original_name VARCHAR(255),
-    original_path VARCHAR(255),
-    processed_path VARCHAR(255),
-    status VARCHAR(20),
-    error TEXT,
-    created_at TIMESTAMP,
-    processed_at TIMESTAMP
+CREATE TABLE public.images (
+	image_id uuid NOT NULL,
+	batch_id uuid NOT NULL,
+	status public.image_status DEFAULT 'pending'::image_status NOT NULL,
+	error text NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	processed_at timestamp NULL,
+	CONSTRAINT error_only_on_failure CHECK ((((status = 'failed'::image_status) AND (error IS NOT NULL)) OR ((status <> 'failed'::image_status) AND (error IS NULL)))),
+	CONSTRAINT images_pkey PRIMARY KEY (image_id),
+	CONSTRAINT processed_at_required CHECK ((((status = 'completed'::image_status) AND (processed_at IS NOT NULL)) OR (status <> 'completed'::image_status)))
 );
+CREATE INDEX idx_images_created_at ON public.images USING btree (created_at);
+CREATE INDEX idx_images_status ON public.images USING btree (status);
+
+
+-- public.images foreign keys
+
+ALTER TABLE public.images ADD CONSTRAINT images_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(batch_id);
 ```
 
 ### Redis Keys
