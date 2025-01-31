@@ -1,6 +1,9 @@
 package server
 
 import (
+	"apollo-image-processor/internal/controller"
+	"apollo-image-processor/internal/handler"
+	"apollo-image-processor/internal/repository"
 	"database/sql"
 	"fmt"
 	"log"
@@ -13,8 +16,8 @@ import (
 )
 
 type Server struct {
-	Db  *sql.DB
-	Api *http.Server
+	db  *sql.DB
+	api *http.Server
 }
 
 type Config struct {
@@ -27,9 +30,8 @@ type Config struct {
 	dbname     string
 }
 
-func NewServer() (*Server, error) {
-	server := Server{}
-	config := Config{
+func newConfig() Config {
+	return Config{
 		apihost:    os.Getenv("API_HOST"),
 		apiport:    os.Getenv("API_PORT"),
 		dbhost:     os.Getenv("DB_HOST"),
@@ -38,30 +40,40 @@ func NewServer() (*Server, error) {
 		dbpassword: os.Getenv("DB_PASSWORD"),
 		dbname:     os.Getenv("DB_NAME"),
 	}
+}
 
-	// db, err := initDB(config)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to initialize database: %w", err)
-	// }
-	// server.Db = db
+func NewServer() (*Server, error) {
+	server := Server{}
+	config := newConfig()
 
-	api, err := initApiService(config)
+	db, err := initDB(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+	server.db = db
+
+	api, err := initApiService(config, db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize api server: %w", err)
 	}
-	server.Api = api
+	server.api = api
 
 	return &server, nil
 }
 
-func initApiService(config Config) (*http.Server, error) {
+func initApiService(config Config, db *sql.DB) (*http.Server, error) {
 
 	router := chi.NewRouter()
 	api := &http.Server{
 		Addr:    ":" + config.apiport,
 		Handler: router,
 	}
-	addRoutes(router)
+
+	ir := repository.NewImageRepository(db)
+	ic := controller.NewImageController(ir)
+	ih := handler.NewImageHandler(ic)
+
+	addRoutes(router, ih)
 
 	log.Printf("listening on %s\n", api.Addr)
 	if err := api.ListenAndServe(); err != nil && err != http.ErrServerClosed {
