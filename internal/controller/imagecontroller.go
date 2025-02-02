@@ -22,7 +22,12 @@ func NewImageController(repo repository.ImageRepository) ImageController {
 
 func (ic imageController) UploadImages(ctx context.Context, files []models.UploadedFile) error {
 
-	err := ic.imageRepo.UploadImages(ctx, files)
+	batchID, imageIDs, err := ic.imageRepo.UploadImages(ctx, files)
+	if err != nil {
+		return err
+	}
+
+	err = ic.imageRepo.PublishMessage(batchID, imageIDs)
 	if err != nil {
 		return err
 	}

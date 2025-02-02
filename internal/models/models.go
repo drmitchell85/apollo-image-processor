@@ -16,6 +16,11 @@ type UploadedFile struct {
 	ImageNum    int    `json:"image_num"`
 }
 
+type BatchMessage struct {
+	Batchid string
+	Imageid string
+}
+
 type BatchStatus string
 
 const (
