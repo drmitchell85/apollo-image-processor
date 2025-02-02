@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"apollo-image-processor/internal/messenger"
 	"apollo-image-processor/internal/models"
 	"context"
 	"database/sql"
@@ -13,16 +14,21 @@ type ImageRepository interface {
 }
 
 type imageRepository struct {
-	db *sql.DB
+	db             *sql.DB
+	messengerQueue messenger.MessengerQueue
 }
 
-func NewImageRepository(db *sql.DB) ImageRepository {
+func NewImageRepository(db *sql.DB, messengerQueue messenger.MessengerQueue) ImageRepository {
 	return &imageRepository{
-		db: db,
+		db:             db,
+		messengerQueue: messengerQueue,
 	}
 }
 
 func (ir *imageRepository) UploadImages(ctx context.Context, files []models.UploadedFile) error {
+
+	var batch_id string
+	var imageIDs []string
 
 	tx, err := ir.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -30,7 +36,6 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 		return fmt.Errorf("error starting transaction: %w", err)
 	}
 
-	var batch_id string
 	q1 := `INSERT INTO batches (status, total_images) VALUES ($1, $2) RETURNING batch_id`
 	err = tx.QueryRow(q1, models.BatchStatusCreated, len(files)).Scan(&batch_id)
 	if err != nil {
@@ -58,13 +63,32 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 	}
 
 	q2 := fmt.Sprintf(
-		"INSERT INTO images (batch_id, status, image_name, image) VALUES %s",
+		"INSERT INTO images (batch_id, status, image_name, image) VALUES %s RETURNING image_id",
 		strings.Join(paramPlaceholders, ", "))
 
-	_, err = tx.ExecContext(ctx, q2, paramData...)
+	// _, err = tx.ExecContext(ctx, q2, paramData...)
+	rows, err := tx.Query(q2, paramData...)
 	if err != nil {
 		tx.Rollback()
 		return fmt.Errorf("error inserting images: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var imageID string
+		err = rows.Scan(&imageID)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error getting imageID: %w", err)
+		}
+
+		imageIDs = append(imageIDs, imageID)
+	}
+
+	err = ir.messengerQueue.PublishMessage(batch_id, imageIDs)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("error sending to messenger: %w", err)
 	}
 
 	err = tx.Commit()

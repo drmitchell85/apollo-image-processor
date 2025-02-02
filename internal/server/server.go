@@ -3,6 +3,7 @@ package server
 import (
 	"apollo-image-processor/internal/controller"
 	"apollo-image-processor/internal/handler"
+	"apollo-image-processor/internal/messenger"
 	"apollo-image-processor/internal/repository"
 	"database/sql"
 	"fmt"
@@ -10,35 +11,48 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi"
 	_ "github.com/lib/pq"
+	"github.com/streadway/amqp"
 )
 
 type Server struct {
-	db  *sql.DB
-	api *http.Server
+	db      *sql.DB
+	api     *http.Server
+	amqp    *amqp.Connection
+	rmqpool *sync.Pool
 }
 
 type Config struct {
-	apihost    string
-	apiport    string
-	dbhost     string
-	dbport     string
-	dbuser     string
-	dbpassword string
-	dbname     string
+	APIhost    string
+	APIport    string
+	DBhost     string
+	DBport     string
+	DBuser     string
+	DBpassword string
+	DBname     string
+	RMQprefix  string
+	RMQuser    string
+	RMQhost    string
+	RMQport    string
 }
 
 func newConfig() Config {
 	return Config{
-		apihost:    os.Getenv("API_HOST"),
-		apiport:    os.Getenv("API_PORT"),
-		dbhost:     os.Getenv("DB_HOST"),
-		dbport:     os.Getenv("DB_PORT"),
-		dbuser:     os.Getenv("DB_USER"),
-		dbpassword: os.Getenv("DB_PASSWORD"),
-		dbname:     os.Getenv("DB_NAME"),
+		APIhost:    os.Getenv("API_HOST"),
+		APIport:    os.Getenv("API_PORT"),
+		DBhost:     os.Getenv("DB_HOST"),
+		DBport:     os.Getenv("DB_PORT"),
+		DBuser:     os.Getenv("DB_USER"),
+		DBpassword: os.Getenv("DB_PASSWORD"),
+		DBname:     os.Getenv("DB_NAME"),
+		RMQprefix:  os.Getenv("RMQ_PREFIX"),
+		RMQuser:    os.Getenv("RMQ_USER"),
+		RMQhost:    os.Getenv("RMQ_HOST"),
+		RMQport:    os.Getenv("RMQ_PORT"),
 	}
 }
 
@@ -52,7 +66,14 @@ func NewServer() (*Server, error) {
 	}
 	server.db = db
 
-	api, err := initApiService(config, db)
+	amqp, rmqpool, err := initRMQ(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize rabbitMQ: %w", err)
+	}
+	server.amqp = amqp
+	server.rmqpool = rmqpool
+
+	api, err := initApiService(config, db, rmqpool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize api server: %w", err)
 	}
@@ -61,15 +82,16 @@ func NewServer() (*Server, error) {
 	return &server, nil
 }
 
-func initApiService(config Config, db *sql.DB) (*http.Server, error) {
+func initApiService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server, error) {
 
 	router := chi.NewRouter()
 	api := &http.Server{
-		Addr:    ":" + config.apiport,
+		Addr:    ":" + config.APIport,
 		Handler: router,
 	}
 
-	ir := repository.NewImageRepository(db)
+	mq := messenger.NewMessengerQueue(rmqpool)
+	ir := repository.NewImageRepository(db, mq)
 	ic := controller.NewImageController(ir)
 	ih := handler.NewImageHandler(ic)
 
@@ -84,14 +106,14 @@ func initApiService(config Config, db *sql.DB) (*http.Server, error) {
 }
 
 func initDB(config Config) (*sql.DB, error) {
-	port, err := strconv.Atoi(config.dbport)
+	port, err := strconv.Atoi(config.DBport)
 	if err != nil {
 		return nil, fmt.Errorf("error getting port: %w", err)
 	}
 
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=disable",
-		config.dbhost, port, config.dbuser, config.dbpassword, config.dbname)
+		config.DBhost, port, config.DBuser, config.DBpassword, config.DBname)
 
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
@@ -103,7 +125,49 @@ func initDB(config Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("error connecting to db: %w", err)
 	}
 
-	log.Println("connected to db...")
+	log.Println("connected to db")
 
 	return db, nil
+}
+
+func initRMQ(config Config) (*amqp.Connection, *sync.Pool, error) {
+
+	// "amqp://guest:guest@localhost:port/"
+	rmqUrl := fmt.Sprintf(
+		"%s%s:%s@%s:%s/",
+		config.RMQprefix,
+		config.RMQuser,
+		config.RMQuser,
+		config.RMQhost,
+		config.RMQport,
+	)
+
+	fmt.Printf("rmqUrl: %s", rmqUrl)
+
+	// conn, err := amqp.Dial(rmqUrl)
+
+	amqpConfig := amqp.Config{
+		Heartbeat: time.Second * 60,
+	}
+
+	conn, err := amqp.DialConfig(rmqUrl, amqpConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error connecting to rabbitMQ: %w", err)
+	}
+	log.Println("connected to rabbitMQ")
+
+	var rmqPool = &sync.Pool{
+		New: func() interface{} {
+			channel, err := conn.Channel()
+			if err != nil {
+				log.Printf("error creating rabbitMQ channel: %s", err)
+			} else {
+				log.Printf("rabbitMQ channel created")
+			}
+			return channel
+		},
+	}
+	log.Println("rbbitMQ pool created")
+
+	return conn, rmqPool, nil
 }
