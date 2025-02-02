@@ -2,8 +2,8 @@ package handler
 
 import (
 	"apollo-image-processor/internal/controller"
+	"apollo-image-processor/internal/models"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,8 +29,7 @@ https://andrew-mccall.com/blog/2024/06/golang-send-multipart-form-data-to-api-en
 - construct a payload to respond with
 */
 func (ih ImageHandler) UploadImages(w http.ResponseWriter, r *http.Request) {
-	body := r.Body
-	fmt.Printf("body: %+v", body)
+	ctx := r.Context()
 
 	err := r.ParseMultipartForm(32 << 10) // 32mb
 	if err != nil {
@@ -38,23 +37,14 @@ func (ih ImageHandler) UploadImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.FormValue("name")
-
-	type uploadedFile struct {
-		Size        int64  `json:"size"`
-		ContentType string `json:"content_type"`
-		Filename    string `json:"filename"`
-		FileContent string `json:"file_content"`
-	}
-
 	// var newFile uploadedFile
-	var files []uploadedFile
+	var files []models.UploadedFile
 
-	for _, fHeaders := range r.MultipartForm.File {
+	for fKey, fHeaders := range r.MultipartForm.File {
 
-		for _, headers := range fHeaders {
+		for fNum, headers := range fHeaders {
 
-			var newFile uploadedFile
+			var newFile models.UploadedFile
 
 			// return the associated file
 			file, err := headers.Open()
@@ -67,7 +57,7 @@ func (ih ImageHandler) UploadImages(w http.ResponseWriter, r *http.Request) {
 			// detect content type
 			buff := make([]byte, 512)
 			file.Read(buff)
-			file.Seek(0, 0)
+			file.Seek(0, 0) // reset to start
 
 			contentType := http.DetectContentType(buff)
 			newFile.ContentType = contentType
@@ -80,35 +70,29 @@ func (ih ImageHandler) UploadImages(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			file.Seek(0, 0)
+			file.Seek(0, 0) // reset to start
 			newFile.Size = fileSize
 			newFile.Filename = headers.Filename
-			contentBuf := bytes.NewBuffer(nil)
 
-			if _, err := io.Copy(contentBuf, file); err != nil {
-				respondFailure(w, http.StatusInternalServerError, fmt.Errorf("error with content buffer: %w", err))
+			newFile.FileContent, err = io.ReadAll(file)
+			if err != nil {
+				respondFailure(w, http.StatusInternalServerError, fmt.Errorf("error reading content: %w", err))
 				return
 			}
 
-			newFile.FileContent = contentBuf.String()
-
+			newFile.Key = fKey
+			newFile.ImageNum = fNum
 			files = append(files, newFile)
 
 		}
 
 	}
-	data := make(map[string]interface{})
 
-	data["form_field_value"] = name
-	data["status"] = 200
-	data["file_stats"] = files
-
-	fmt.Println("name: ", name)
-
-	if err = json.NewEncoder(w).Encode(data); err != nil {
-		respondFailure(w, http.StatusInternalServerError, fmt.Errorf("error encoding: %w", err))
+	err = ih.imageController.UploadImages(ctx, files)
+	if err != nil {
+		respondFailure(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	respondSuccess(w, http.StatusOK, data)
+	respondSuccess(w, http.StatusOK, files)
 }

@@ -1,9 +1,13 @@
 package controller
 
-import "apollo-image-processor/internal/repository"
+import (
+	"apollo-image-processor/internal/models"
+	"apollo-image-processor/internal/repository"
+	"context"
+)
 
 type ImageController interface {
-	UploadImages() error
+	UploadImages(context.Context, []models.UploadedFile) error
 }
 
 type imageController struct {
@@ -16,6 +20,12 @@ func NewImageController(repo repository.ImageRepository) ImageController {
 	}
 }
 
-func (ic imageController) UploadImages() error {
+func (ic imageController) UploadImages(ctx context.Context, files []models.UploadedFile) error {
+
+	err := ic.imageRepo.UploadImages(ctx, files)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
