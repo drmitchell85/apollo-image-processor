@@ -1,36 +1,31 @@
 package repository
 
 import (
+	"apollo-image-processor/internal/messenger"
 	"apollo-image-processor/internal/models"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
-	"sync"
-
-	"github.com/streadway/amqp"
 )
 
 type ImageRepository interface {
-	UploadImages(context.Context, []models.UploadedFile) (string, []string, error)
-	PublishMessage(string, []string) error
+	UploadImages(context.Context, []models.UploadedFile) error
 }
 
 type imageRepository struct {
-	db      *sql.DB
-	rmqpool *sync.Pool
+	db             *sql.DB
+	messengerQueue messenger.MessengerQueue
 }
 
-func NewImageRepository(db *sql.DB, rmqpool *sync.Pool) ImageRepository {
+func NewImageRepository(db *sql.DB, messengerQueue messenger.MessengerQueue) ImageRepository {
 	return &imageRepository{
-		db:      db,
-		rmqpool: rmqpool,
+		db:             db,
+		messengerQueue: messengerQueue,
 	}
 }
 
-func (ir *imageRepository) UploadImages(ctx context.Context, files []models.UploadedFile) (string, []string, error) {
+func (ir *imageRepository) UploadImages(ctx context.Context, files []models.UploadedFile) error {
 
 	var batch_id string
 	var imageIDs []string
@@ -38,14 +33,14 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 	tx, err := ir.db.BeginTx(ctx, nil)
 	if err != nil {
 		tx.Rollback()
-		return batch_id, imageIDs, fmt.Errorf("error starting transaction: %w", err)
+		return fmt.Errorf("error starting transaction: %w", err)
 	}
 
 	q1 := `INSERT INTO batches (status, total_images) VALUES ($1, $2) RETURNING batch_id`
 	err = tx.QueryRow(q1, models.BatchStatusCreated, len(files)).Scan(&batch_id)
 	if err != nil {
 		tx.Rollback()
-		return batch_id, imageIDs, fmt.Errorf("error inserting into batches table: %w", err)
+		return fmt.Errorf("error inserting into batches table: %w", err)
 	}
 
 	numFiles := len(files)
@@ -75,7 +70,7 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 	rows, err := tx.Query(q2, paramData...)
 	if err != nil {
 		tx.Rollback()
-		return batch_id, imageIDs, fmt.Errorf("error inserting images: %w", err)
+		return fmt.Errorf("error inserting images: %w", err)
 	}
 	defer rows.Close()
 
@@ -84,68 +79,23 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 		err = rows.Scan(&imageID)
 		if err != nil {
 			tx.Rollback()
-			return batch_id, imageIDs, fmt.Errorf("error getting imageID: %w", err)
+			return fmt.Errorf("error getting imageID: %w", err)
 		}
 
 		imageIDs = append(imageIDs, imageID)
 	}
 
+	err = ir.messengerQueue.PublishMessage(batch_id, imageIDs)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("error sending to messenger: %w", err)
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		tx.Rollback()
-		return batch_id, imageIDs, fmt.Errorf("error committing transaction: %w", err)
+		return fmt.Errorf("error committing transaction: %w", err)
 	}
-
-	return batch_id, imageIDs, nil
-}
-
-func (ir *imageRepository) PublishMessage(batchID string, imageIDs []string) error {
-
-	rmqChan := ir.rmqpool.Get().(*amqp.Channel)
-	defer rmqChan.Close()
-
-	queue, err := rmqChan.QueueDeclare(
-		"processbatch", // name
-		false,          // durable
-		false,          // auto delete
-		false,          // exclusive
-		false,          // no wait
-		nil,            // args
-	)
-	if err != nil {
-		return fmt.Errorf("error delcaring queue: %w", err)
-	}
-
-	for i := 0; i < len(imageIDs); i++ {
-
-		batchMessage := models.BatchMessage{
-			Batchid: batchID,
-			Imageid: imageIDs[i],
-		}
-
-		b, err := json.Marshal(batchMessage)
-		if err != nil {
-			return fmt.Errorf("error error marshalling batch message: %w", err)
-		}
-
-		err = rmqChan.Publish(
-			"",         // exchange
-			queue.Name, // key
-			false,      // mandatory
-			false,      // immediate
-			amqp.Publishing{
-				ContentType: "text/plain",
-				// Body:        []byte(b),
-				Body: b,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("error publishing message: %w", err)
-		}
-
-	}
-
-	log.Printf("queue status: %+v", queue)
 
 	return nil
 }

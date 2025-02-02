@@ -3,6 +3,7 @@ package server
 import (
 	"apollo-image-processor/internal/controller"
 	"apollo-image-processor/internal/handler"
+	"apollo-image-processor/internal/messenger"
 	"apollo-image-processor/internal/repository"
 	"database/sql"
 	"fmt"
@@ -89,7 +90,8 @@ func initApiService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server
 		Handler: router,
 	}
 
-	ir := repository.NewImageRepository(db, rmqpool)
+	mq := messenger.NewMessengerQueue(rmqpool)
+	ir := repository.NewImageRepository(db, mq)
 	ic := controller.NewImageController(ir)
 	ih := handler.NewImageHandler(ic)
 
