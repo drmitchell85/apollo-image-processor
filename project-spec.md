@@ -54,6 +54,8 @@ CREATE TABLE public.images (
 	error text NULL,
 	created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	processed_at timestamp NULL,
+	image_name text,
+	image bytea,
 	CONSTRAINT error_only_on_failure CHECK ((((status = 'failed'::image_status) AND (error IS NOT NULL)) OR ((status <> 'failed'::image_status) AND (error IS NULL)))),
 	CONSTRAINT images_pkey PRIMARY KEY (image_id),
 	CONSTRAINT processed_at_required CHECK ((((status = 'completed'::image_status) AND (processed_at IS NOT NULL)) OR (status <> 'completed'::image_status)))
