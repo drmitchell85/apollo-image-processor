@@ -1,9 +1,13 @@
 include .env
 export
 
-.PHONY: run
-run:
+.PHONY: run-api
+run-api:
 	go run cmd/api/main.go
+
+.PHONY: run-processor
+run-processor:
+	go run cmd/processor/main.go
 
 .PHONY: docker-build
 docker-build:

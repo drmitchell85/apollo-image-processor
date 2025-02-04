@@ -1,10 +1,6 @@
-package server
+package processorserver
 
 import (
-	"apollo-image-processor/internal/controller"
-	"apollo-image-processor/internal/handler"
-	"apollo-image-processor/internal/messenger"
-	"apollo-image-processor/internal/repository"
 	"database/sql"
 	"fmt"
 	"log"
@@ -19,16 +15,16 @@ import (
 	"github.com/streadway/amqp"
 )
 
-type Server struct {
-	db      *sql.DB
-	api     *http.Server
-	amqp    *amqp.Connection
-	rmqpool *sync.Pool
+type ProcessorServer struct {
+	db        *sql.DB
+	processor *http.Server
+	amqp      *amqp.Connection
+	rmqpool   *sync.Pool
 }
 
 type Config struct {
-	APIhost    string
-	APIport    string
+	PROhost    string
+	PROport    string
 	DBhost     string
 	DBport     string
 	DBuser     string
@@ -42,8 +38,8 @@ type Config struct {
 
 func newConfig() Config {
 	return Config{
-		APIhost:    os.Getenv("API_HOST"),
-		APIport:    os.Getenv("API_PORT"),
+		PROhost:    os.Getenv("PROCESSOR_HOST"),
+		PROport:    os.Getenv("PROCESSOR_PORT"),
 		DBhost:     os.Getenv("DB_HOST"),
 		DBport:     os.Getenv("DB_PORT"),
 		DBuser:     os.Getenv("DB_USER"),
@@ -56,8 +52,8 @@ func newConfig() Config {
 	}
 }
 
-func NewServer() (*Server, error) {
-	server := Server{}
+func NewServer() (*ProcessorServer, error) {
+	server := ProcessorServer{}
 	config := newConfig()
 
 	db, err := initDB(config)
@@ -73,29 +69,22 @@ func NewServer() (*Server, error) {
 	server.amqp = amqp
 	server.rmqpool = rmqpool
 
-	api, err := initApiService(config, db, rmqpool)
+	processor, err := initService(config, db, rmqpool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize api server: %w", err)
 	}
-	server.api = api
+	server.processor = processor
 
 	return &server, nil
 }
 
-func initApiService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server, error) {
+func initService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server, error) {
 
 	router := chi.NewRouter()
 	api := &http.Server{
-		Addr:    ":" + config.APIport,
+		Addr:    ":" + config.PROport,
 		Handler: router,
 	}
-
-	mq := messenger.NewMessengerQueue(rmqpool)
-	ir := repository.NewImageRepository(db, mq)
-	ic := controller.NewImageController(ir)
-	ih := handler.NewImageHandler(ic)
-
-	addRoutes(router, ih)
 
 	log.Printf("listening on %s\n", api.Addr)
 	if err := api.ListenAndServe(); err != nil && err != http.ErrServerClosed {

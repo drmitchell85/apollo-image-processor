@@ -1,13 +1,13 @@
 package main
 
 import (
-	"apollo-image-processor/internal/server"
+	"apollo-image-processor/internal/servers/apiserver"
 	"log"
 )
 
 func main() {
-	_, err := server.NewServer()
+	_, err := apiserver.NewServer()
 	if err != nil {
-		log.Fatalf("error building application: %v", err)
+		log.Fatalf("API service: error building application: %v", err)
 	}
 }
