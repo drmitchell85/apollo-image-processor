@@ -1,6 +1,7 @@
 package processorserver
 
 import (
+	"apollo-image-processor/internal/processor/consumer"
 	"database/sql"
 	"fmt"
 	"log"
@@ -84,6 +85,12 @@ func initService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server, e
 	api := &http.Server{
 		Addr:    ":" + config.PROport,
 		Handler: router,
+	}
+
+	cq := consumer.NewConsumerQueue(rmqpool)
+	err := cq.ConsumeMessage()
+	if err != nil {
+		return api, fmt.Errorf("failed to initialize message consumer: %w", err)
 	}
 
 	log.Printf("listening on %s\n", api.Addr)

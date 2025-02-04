@@ -1,10 +1,10 @@
 package apiserver
 
 import (
-	"apollo-image-processor/internal/controller"
-	"apollo-image-processor/internal/handler"
-	"apollo-image-processor/internal/messenger"
-	"apollo-image-processor/internal/repository"
+	"apollo-image-processor/internal/api/controller"
+	"apollo-image-processor/internal/api/handler"
+	"apollo-image-processor/internal/api/messenger"
+	"apollo-image-processor/internal/api/repository"
 	"database/sql"
 	"fmt"
 	"log"
