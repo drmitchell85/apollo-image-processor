@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"apollo-image-processor/internal/controller"
+	"apollo-image-processor/internal/api/controller"
 	"apollo-image-processor/internal/models"
 	"bytes"
 	"fmt"

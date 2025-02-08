@@ -1,8 +1,8 @@
 package controller
 
 import (
+	"apollo-image-processor/internal/api/repository"
 	"apollo-image-processor/internal/models"
-	"apollo-image-processor/internal/repository"
 	"context"
 )
 

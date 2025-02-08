@@ -30,12 +30,12 @@ func (m *messengerQueue) PublishMessage(batchID string, imageIDs []string) error
 	defer rmqChan.Close()
 
 	queue, err := rmqChan.QueueDeclare(
-		"processbatch", // name
-		false,          // durable
-		false,          // auto delete
-		false,          // exclusive
-		false,          // no wait
-		nil,            // args
+		models.QueueName, // name
+		false,            // durable
+		false,            // auto delete
+		false,            // exclusive
+		false,            // no wait
+		nil,              // args
 	)
 	if err != nil {
 		return fmt.Errorf("error delcaring queue: %w", err)
@@ -54,10 +54,10 @@ func (m *messengerQueue) PublishMessage(batchID string, imageIDs []string) error
 		}
 
 		err = rmqChan.Publish(
-			"",         // exchange
-			queue.Name, // key
-			false,      // mandatory
-			false,      // immediate
+			"",               // exchange
+			models.QueueName, // key
+			false,            // mandatory
+			false,            // immediate
 			amqp.Publishing{
 				ContentType: "text/plain",
 				// Body:        []byte(b),

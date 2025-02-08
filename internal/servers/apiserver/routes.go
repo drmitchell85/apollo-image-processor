@@ -1,7 +1,7 @@
-package server
+package apiserver
 
 import (
-	"apollo-image-processor/internal/handler"
+	"apollo-image-processor/internal/api/handler"
 	"net/http"
 
 	"github.com/go-chi/chi"

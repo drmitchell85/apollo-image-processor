@@ -6,6 +6,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const QueueName = "processbatch"
+
 type UploadedFile struct {
 	Size        int64  `json:"size"`
 	ContentType string `json:"content_type"`

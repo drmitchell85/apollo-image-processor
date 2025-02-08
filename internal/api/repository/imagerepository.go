@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"apollo-image-processor/internal/messenger"
+	"apollo-image-processor/internal/api/messenger"
 	"apollo-image-processor/internal/models"
 	"context"
 	"database/sql"
