@@ -5,9 +5,11 @@ go 1.23.5
 require github.com/go-chi/chi v1.5.5
 
 require (
+	github.com/disintegration/imaging v1.6.2 // indirect
 	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	github.com/streadway/amqp v1.1.0 // indirect
 	github.com/wagslane/go-rabbitmq v0.15.0 // indirect
+	golang.org/x/image v0.24.0 // indirect
 )
 
 require (

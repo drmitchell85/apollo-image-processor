@@ -1,7 +1,7 @@
 package processorserver
 
 import (
-	"apollo-image-processor/internal/processor/consumer"
+	"apollo-image-processor/internal/processor/dispatcher"
 	"database/sql"
 	"fmt"
 	"log"
@@ -87,8 +87,7 @@ func initService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server, e
 		Handler: router,
 	}
 
-	cq := consumer.NewConsumerQueue(rmqpool)
-	err := cq.ConsumeMessage()
+	err := dispatcher.InitDispatcher(rmqpool, db)
 	if err != nil {
 		return api, fmt.Errorf("failed to initialize message consumer: %w", err)
 	}
