@@ -65,6 +65,7 @@ func InitDispatcher(rmqpool *sync.Pool, db *sql.DB) error {
 	// create channel that will hold our messages
 	jobsChan := make(chan amqp.Delivery, 10)
 	resChan := make(chan amqp.Delivery)
+	errChan := make(chan error)
 
 	forever := make(chan bool)
 	go func() {
@@ -77,10 +78,11 @@ func InitDispatcher(rmqpool *sync.Pool, db *sql.DB) error {
 
 	// start up our workers
 	for w := 0; w < workerPoolSize; w++ {
-		go worker.ImgWorker(jobsChan, resChan)
+		go worker.ImgWorker(jobsChan, resChan, errChan, db)
 	}
 
 	go worker.ResWorker(resChan, rmqChan)
+	go worker.ErrWorker(errChan)
 
 	log.Println("Waiting for messages...")
 	<-forever

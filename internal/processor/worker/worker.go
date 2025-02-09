@@ -2,6 +2,9 @@ package worker
 
 import (
 	"apollo-image-processor/internal/models"
+	"apollo-image-processor/internal/processor/imager"
+	procrepository "apollo-image-processor/internal/processor/repository"
+	"database/sql"
 	"encoding/json"
 	"log"
 	"time"
@@ -9,9 +12,29 @@ import (
 	"github.com/streadway/amqp"
 )
 
-func ImgWorker(jobsChan <-chan amqp.Delivery, resChan chan<- amqp.Delivery) {
+// TODO address if the continue will cause issues with the message buffer...
+func ImgWorker(jobsChan <-chan amqp.Delivery, resChan chan<- amqp.Delivery, errChan chan<- error, db *sql.DB) {
 
 	for job := range jobsChan {
+
+		var batchMessage models.BatchMessage
+		err := json.Unmarshal(job.Body, &batchMessage)
+		if err != nil {
+			log.Printf("error unmarshalling res: %s", err)
+		}
+
+		srcimage, err := procrepository.GetImage(batchMessage.Imageid, db)
+		if err != nil {
+			errChan <- err
+			continue
+		}
+
+		_, err = imager.ProcessImageBW(srcimage)
+		if err != nil {
+			errChan <- err
+			continue
+		}
+
 		time.Sleep(time.Second * 10)
 		resChan <- job
 	}
@@ -28,5 +51,14 @@ func ResWorker(resChan <-chan amqp.Delivery, rmqChan *amqp.Channel) {
 		}
 
 		rmqChan.Ack(res.DeliveryTag, false)
+	}
+}
+
+func ErrWorker(errChan <-chan error) {
+
+	for err := range errChan {
+
+		log.Printf("error: %s", err)
+
 	}
 }
