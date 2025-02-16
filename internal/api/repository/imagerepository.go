@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"apollo-image-processor/internal/api/messenger"
 	"apollo-image-processor/internal/models"
 	"context"
 	"database/sql"
@@ -10,22 +9,20 @@ import (
 )
 
 type ImageRepository interface {
-	UploadImages(context.Context, []models.UploadedFile) error
+	UploadImages(context.Context, []models.UploadedFile) (string, []string, error)
 }
 
 type imageRepository struct {
-	db             *sql.DB
-	messengerQueue messenger.MessengerQueue
+	db *sql.DB
 }
 
-func NewImageRepository(db *sql.DB, messengerQueue messenger.MessengerQueue) ImageRepository {
+func NewImageRepository(db *sql.DB) ImageRepository {
 	return &imageRepository{
-		db:             db,
-		messengerQueue: messengerQueue,
+		db: db,
 	}
 }
 
-func (ir *imageRepository) UploadImages(ctx context.Context, files []models.UploadedFile) error {
+func (ir *imageRepository) UploadImages(ctx context.Context, files []models.UploadedFile) (string, []string, error) {
 
 	var batch_id string
 	var imageIDs []string
@@ -33,14 +30,14 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 	tx, err := ir.db.BeginTx(ctx, nil)
 	if err != nil {
 		tx.Rollback()
-		return fmt.Errorf("error starting transaction: %w", err)
+		return batch_id, imageIDs, fmt.Errorf("error starting transaction: %w", err)
 	}
 
 	q1 := `INSERT INTO batches (status, total_images) VALUES ($1, $2) RETURNING batch_id`
 	err = tx.QueryRow(q1, models.BatchStatusCreated, len(files)).Scan(&batch_id)
 	if err != nil {
 		tx.Rollback()
-		return fmt.Errorf("error inserting into batches table: %w", err)
+		return batch_id, imageIDs, fmt.Errorf("error inserting into batches table: %w", err)
 	}
 
 	numFiles := len(files)
@@ -70,7 +67,7 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 	rows, err := tx.Query(q2, paramData...)
 	if err != nil {
 		tx.Rollback()
-		return fmt.Errorf("error inserting images: %w", err)
+		return batch_id, imageIDs, fmt.Errorf("error inserting images: %w", err)
 	}
 	defer rows.Close()
 
@@ -79,23 +76,17 @@ func (ir *imageRepository) UploadImages(ctx context.Context, files []models.Uplo
 		err = rows.Scan(&imageID)
 		if err != nil {
 			tx.Rollback()
-			return fmt.Errorf("error getting imageID: %w", err)
+			return batch_id, imageIDs, fmt.Errorf("error getting imageID: %w", err)
 		}
 
 		imageIDs = append(imageIDs, imageID)
 	}
 
-	err = ir.messengerQueue.PublishMessage(batch_id, imageIDs)
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("error sending to messenger: %w", err)
-	}
-
 	err = tx.Commit()
 	if err != nil {
 		tx.Rollback()
-		return fmt.Errorf("error committing transaction: %w", err)
+		return batch_id, imageIDs, fmt.Errorf("error committing transaction: %w", err)
 	}
 
-	return nil
+	return batch_id, imageIDs, nil
 }

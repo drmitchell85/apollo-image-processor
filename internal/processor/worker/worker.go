@@ -29,7 +29,15 @@ func ImgWorker(jobsChan <-chan amqp.Delivery, resChan chan<- amqp.Delivery, errC
 			continue
 		}
 
-		_, err = imager.ProcessImageBW(srcimage)
+		procImage, err := imager.ProcessImageBW(srcimage)
+		if err != nil {
+			errChan <- err
+			continue
+		}
+
+		// fmt.Printf("\nimage %s processed", batchMessage.Imageid)
+
+		err = procrepository.InsertImage(batchMessage.Imageid, procImage, db)
 		if err != nil {
 			errChan <- err
 			continue
