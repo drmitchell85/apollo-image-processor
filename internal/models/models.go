@@ -57,4 +57,7 @@ type Image struct {
 	Error       *string     `json:"error,omitempty" db:"error"`
 	CreatedAt   time.Time   `json:"created_at" db:"created_at"`
 	ProcessedAt *time.Time  `json:"processed_at,omitempty" db:"processed_at"`
+	ImageName   string      `json:"image_name" db:"image_name"`
+	Image       []byte      `json:"image" db:"image"`
+	ImageProcBW []byte      `json:"image_proc_bw" db:"image_proc_bw"`
 }

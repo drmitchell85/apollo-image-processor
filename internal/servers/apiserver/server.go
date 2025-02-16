@@ -91,8 +91,8 @@ func initApiService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server
 	}
 
 	mq := messenger.NewMessengerQueue(rmqpool)
-	ir := repository.NewImageRepository(db, mq)
-	ic := controller.NewImageController(ir)
+	ir := repository.NewImageRepository(db)
+	ic := controller.NewImageController(ir, mq)
 	ih := handler.NewImageHandler(ic)
 
 	addRoutes(router, ih)
