@@ -142,10 +142,6 @@ func initRMQ(config Config) (*amqp.Connection, *sync.Pool, error) {
 		config.RMQport,
 	)
 
-	fmt.Printf("rmqUrl: %s", rmqUrl)
-
-	// conn, err := amqp.Dial(rmqUrl)
-
 	amqpConfig := amqp.Config{
 		Heartbeat: time.Second * 60,
 	}
