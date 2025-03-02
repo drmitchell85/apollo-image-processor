@@ -1,7 +1,7 @@
 package main
 
 import (
-	"apollo-image-processor/internal/servers/processorserver"
+	processorserver "apollo-image-processor/internal/processor/server"
 	"log"
 )
 

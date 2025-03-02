@@ -1,7 +1,7 @@
 package main
 
 import (
-	"apollo-image-processor/internal/servers/apiserver"
+	apiserver "apollo-image-processor/internal/api/server"
 	"log"
 )
 
