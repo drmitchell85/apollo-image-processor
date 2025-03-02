@@ -6,8 +6,13 @@ import (
 )
 
 func main() {
-	_, err := apiserver.NewServer()
+	apiServer, err := apiserver.NewServer()
 	if err != nil {
 		log.Fatalf("API service: error building application: %v", err)
+	}
+
+	err = apiServer.Start()
+	if err != nil {
+		log.Fatalf("API service: failed to start: %v", err)
 	}
 }
