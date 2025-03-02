@@ -53,6 +53,15 @@ func newConfig() Config {
 	}
 }
 
+func (s *ProcessorServer) Start() error {
+	log.Printf("listening on %s\n", s.processor.Addr)
+	if err := s.processor.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("error listening and serving: %w", err)
+	}
+
+	return nil
+}
+
 func NewServer() (*ProcessorServer, error) {
 	server := ProcessorServer{}
 	config := newConfig()
@@ -70,7 +79,7 @@ func NewServer() (*ProcessorServer, error) {
 	server.amqp = amqp
 	server.rmqpool = rmqpool
 
-	processor, err := initService(config, db, rmqpool)
+	processor, err := initProcessorService(config, db, rmqpool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize api server: %w", err)
 	}
@@ -79,25 +88,25 @@ func NewServer() (*ProcessorServer, error) {
 	return &server, nil
 }
 
-func initService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server, error) {
+func initProcessorService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server, error) {
 
 	router := chi.NewRouter()
-	api := &http.Server{
+	processor := &http.Server{
 		Addr:    ":" + config.PROport,
 		Handler: router,
 	}
 
-	err := dispatcher.InitDispatcher(rmqpool, db)
-	if err != nil {
-		return api, fmt.Errorf("failed to initialize message consumer: %w", err)
-	}
+	addRoutes(router)
 
-	log.Printf("listening on %s\n", api.Addr)
-	if err := api.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return api, fmt.Errorf("error listening and serving: %w", err)
-	}
+	go func() {
+		err := dispatcher.InitDispatcher(rmqpool, db)
+		if err != nil {
+			fmt.Errorf("failed to initialize message consumer: %w", err)
+			// TODO add some recovery logic...
+		}
+	}()
 
-	return api, nil
+	return processor, nil
 }
 
 func initDB(config Config) (*sql.DB, error) {
@@ -139,8 +148,6 @@ func initRMQ(config Config) (*amqp.Connection, *sync.Pool, error) {
 
 	fmt.Printf("rmqUrl: %s", rmqUrl)
 
-	// conn, err := amqp.Dial(rmqUrl)
-
 	amqpConfig := amqp.Config{
 		Heartbeat: time.Second * 60,
 	}
@@ -162,7 +169,7 @@ func initRMQ(config Config) (*amqp.Connection, *sync.Pool, error) {
 			return channel
 		},
 	}
-	log.Println("rbbitMQ pool created")
+	log.Println("rabbitMQ pool created")
 
 	return conn, rmqPool, nil
 }

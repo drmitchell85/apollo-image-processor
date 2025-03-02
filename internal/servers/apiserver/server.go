@@ -56,6 +56,15 @@ func newConfig() Config {
 	}
 }
 
+func (s *APIServer) Start() error {
+	log.Printf("listening on %s\n", s.api.Addr)
+	if err := s.api.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("error listening and serving: %w", err)
+	}
+
+	return nil
+}
+
 func NewServer() (*APIServer, error) {
 	server := APIServer{}
 	config := newConfig()
@@ -97,11 +106,6 @@ func initApiService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.Server
 
 	addRoutes(router, ih)
 
-	log.Printf("listening on %s\n", api.Addr)
-	if err := api.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return api, fmt.Errorf("error listening and serving: %w", err)
-	}
-
 	return api, nil
 }
 
@@ -142,10 +146,6 @@ func initRMQ(config Config) (*amqp.Connection, *sync.Pool, error) {
 		config.RMQport,
 	)
 
-	fmt.Printf("rmqUrl: %s", rmqUrl)
-
-	// conn, err := amqp.Dial(rmqUrl)
-
 	amqpConfig := amqp.Config{
 		Heartbeat: time.Second * 60,
 	}
@@ -167,7 +167,7 @@ func initRMQ(config Config) (*amqp.Connection, *sync.Pool, error) {
 			return channel
 		},
 	}
-	log.Println("rbbitMQ pool created")
+	log.Println("rabbitMQ pool created")
 
 	return conn, rmqPool, nil
 }
