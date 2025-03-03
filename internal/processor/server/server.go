@@ -2,6 +2,7 @@ package processorserver
 
 import (
 	"apollo-image-processor/internal/processor/dispatcher"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -17,10 +18,11 @@ import (
 )
 
 type ProcessorServer struct {
-	db        *sql.DB
-	processor *http.Server
-	amqp      *amqp.Connection
-	rmqpool   *sync.Pool
+	db         *sql.DB
+	processor  *http.Server
+	amqp       *amqp.Connection
+	rmqpool    *sync.Pool
+	dispatcher *dispatcher.Dispatcher
 }
 
 type Config struct {
@@ -54,12 +56,37 @@ func newConfig() Config {
 }
 
 func (s *ProcessorServer) Start() error {
+
+	if err := s.dispatcher.Start(); err != nil {
+		return fmt.Errorf("error starting dispatcher: %w", err)
+	}
+
 	log.Printf("listening on %s\n", s.processor.Addr)
 	if err := s.processor.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("error listening and serving: %w", err)
 	}
 
 	return nil
+}
+
+func (s *ProcessorServer) Shutdown(ctx context.Context) {
+
+	if err := s.processor.Shutdown(ctx); err != nil {
+		log.Printf("error shutting down server: %v", err)
+	}
+
+	if err := s.dispatcher.Shutdown(ctx); err != nil {
+		log.Printf("error shutting down dispatcher: %v", err)
+	}
+
+	if err := s.db.Close(); err != nil {
+		log.Printf("error closing db connection: %v", err)
+	}
+
+	if err := s.amqp.Close(); err != nil {
+		log.Printf("error closing amqp connection: %v", err)
+	}
+
 }
 
 func NewServer() (*ProcessorServer, error) {
@@ -79,9 +106,15 @@ func NewServer() (*ProcessorServer, error) {
 	server.amqp = amqp
 	server.rmqpool = rmqpool
 
+	dispatcher, err := dispatcher.NewDispatcher(db, rmqpool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create a new dispatcher: %w", err)
+	}
+	server.dispatcher = dispatcher
+
 	processor, err := initProcessorService(config, db, rmqpool)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize api server: %w", err)
+		return nil, fmt.Errorf("failed to initialize processor server: %w", err)
 	}
 	server.processor = processor
 
@@ -97,14 +130,6 @@ func initProcessorService(config Config, db *sql.DB, rmqpool *sync.Pool) (*http.
 	}
 
 	addRoutes(router)
-
-	go func() {
-		err := dispatcher.InitDispatcher(rmqpool, db)
-		if err != nil {
-			fmt.Errorf("failed to initialize message consumer: %w", err)
-			// TODO add some recovery logic...
-		}
-	}()
 
 	return processor, nil
 }

@@ -3,6 +3,7 @@ package dispatcher
 import (
 	"apollo-image-processor/internal/models"
 	"apollo-image-processor/internal/processor/worker"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -13,28 +14,49 @@ import (
 	"github.com/streadway/amqp"
 )
 
-func InitDispatcher(rmqpool *sync.Pool, db *sql.DB) error {
+type Dispatcher struct {
+	db             *sql.DB
+	rmqpool        *sync.Pool
+	workerPoolSize int
+	prefetchCount  int
+	shutdown       chan struct{}
+	wg             sync.WaitGroup
+}
 
+func NewDispatcher(db *sql.DB, rmqpool *sync.Pool) (*Dispatcher, error) {
 	workerPoolSize, err := strconv.Atoi(os.Getenv("WORKER_POOL_SIZE"))
 	if err != nil {
-		return fmt.Errorf("err setting worker pool size: %w", err)
+		return nil, fmt.Errorf("err setting worker pool size: %w", err)
 	}
 
 	prefetchCount, err := strconv.Atoi(os.Getenv("RMQ_PREFETCH_COUNT"))
 	if err != nil {
-		return fmt.Errorf("error setting prefetch count: %w", err)
+		return nil, fmt.Errorf("error setting prefetch count: %w", err)
 	}
 
-	rmqChan := rmqpool.Get().(*amqp.Channel)
-	err = rmqChan.Qos(
-		prefetchCount, // prefetchCount
-		0,             // size
-		false,         // global
+	shutdown := make(chan struct{})
+
+	return &Dispatcher{
+		db:             db,
+		rmqpool:        rmqpool,
+		workerPoolSize: workerPoolSize,
+		prefetchCount:  prefetchCount,
+		shutdown:       shutdown,
+		wg:             sync.WaitGroup{},
+	}, nil
+}
+
+func (d *Dispatcher) Start() error {
+
+	rmqChan := d.rmqpool.Get().(*amqp.Channel)
+	err := rmqChan.Qos(
+		d.prefetchCount, // prefetchCount
+		0,               // size
+		false,           // global
 	)
 	if err != nil {
 		return fmt.Errorf("error setting QoS: %w", err)
 	}
-	defer rmqChan.Close()
 
 	queue, err := rmqChan.QueueDeclare(
 		models.QueueName, // name
@@ -67,7 +89,6 @@ func InitDispatcher(rmqpool *sync.Pool, db *sql.DB) error {
 	resChan := make(chan amqp.Delivery)
 	errChan := make(chan error)
 
-	forever := make(chan bool)
 	go func() {
 		for msg := range msgs {
 
@@ -77,15 +98,41 @@ func InitDispatcher(rmqpool *sync.Pool, db *sql.DB) error {
 	}()
 
 	// start up our workers
-	for w := 0; w < workerPoolSize; w++ {
-		go worker.ImgWorker(jobsChan, resChan, errChan, db)
+	for w := 0; w < d.workerPoolSize; w++ {
+		d.wg.Add(1)
+		go worker.ImgWorker(jobsChan, resChan, errChan, d.shutdown, d.db, &d.wg)
 	}
 
-	go worker.ResWorker(resChan, rmqChan)
-	go worker.ErrWorker(errChan)
+	d.wg.Add(1)
+	go worker.ResWorker(resChan, d.shutdown, rmqChan, &d.wg)
+
+	d.wg.Add(1)
+	go worker.ErrWorker(errChan, d.shutdown, &d.wg)
 
 	log.Println("Waiting for messages...")
-	<-forever
 
 	return nil
+}
+
+func (d *Dispatcher) Shutdown(ctx context.Context) error {
+
+	log.Printf("shutting down the dispatcher...")
+
+	close(d.shutdown)
+
+	done := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("All workers shut down successfully")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("shutdown timed out: %w", ctx.Err())
+
+	}
+
 }
