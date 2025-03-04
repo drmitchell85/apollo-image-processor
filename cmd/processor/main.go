@@ -17,7 +17,6 @@ func main() {
 	}
 
 	errc := make(chan error)
-
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGTERM, syscall.SIGINT)
 
@@ -34,13 +33,13 @@ func main() {
 		log.Println("received signal to shut down...")
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		processorServer.Shutdown(ctx)
-		cancel() // Important to avoid context leak
+		cancel()
 
 	case <-errc:
 		log.Println("error starting up server, shutting down...")
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		processorServer.Shutdown(ctx)
-		cancel() // Important to avoid context leak
+		cancel()
 	}
 
 	os.Exit(0)
