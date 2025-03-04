@@ -5,6 +5,7 @@ import (
 	"apollo-image-processor/internal/api/handler"
 	"apollo-image-processor/internal/api/messenger"
 	"apollo-image-processor/internal/api/repository"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -63,6 +64,22 @@ func (s *APIServer) Start() error {
 	}
 
 	return nil
+}
+
+func (s *APIServer) Shutdown(ctx context.Context) {
+
+	if err := s.api.Shutdown(ctx); err != nil {
+		log.Printf("error shutting down server: %v", err)
+	}
+
+	if err := s.db.Close(); err != nil {
+		log.Printf("error closing db connection: %v", err)
+	}
+
+	if err := s.amqp.Close(); err != nil {
+		log.Printf("error closing amqp connection: %v", err)
+	}
+
 }
 
 func NewServer() (*APIServer, error) {
