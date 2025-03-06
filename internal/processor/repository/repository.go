@@ -2,6 +2,7 @@ package procrepository
 
 import (
 	"apollo-image-processor/internal/models"
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -10,7 +11,7 @@ import (
 )
 
 type ProcessorRepository interface {
-	GetImage(string) ([]byte, error)
+	GetImage(string, string) ([]byte, error)
 	InsertImage(string, string, []byte) error
 	UpdateBatchStatus(string, models.BatchStatus) error
 	UpdateImageStatus(string, models.ImageStatus) error
@@ -26,20 +27,44 @@ func NewProcessorRepository(db *sql.DB) ProcessorRepository {
 	}
 }
 
-// TODO update the status of the batch and image when getting the image instead of calling a separate db call
-func (p *processorRepository) GetImage(imageID string) ([]byte, error) {
+func (p *processorRepository) GetImage(imageID string, batchID string) ([]byte, error) {
 
 	imageUUID, err := uuid.Parse(imageID)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing image uuid: %w", err)
 	}
 
-	query := fmt.Sprintf("SELECT image FROM images WHERE image_id = '%s'", imageUUID)
+	batchUUID, err := uuid.Parse(batchID)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing batch uuid: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := p.db.BeginTx(ctx, nil)
+
+	imageStatus := models.ImageStatusProcessing
+	query1 := fmt.Sprintf("UPDATE images SET status = '%s' WHERE image_id = '%s' RETURNING image", imageStatus, imageUUID)
 
 	var srcimage []byte
-	err = p.db.QueryRow(query).Scan(&srcimage)
+	err = tx.QueryRow(query1).Scan(&srcimage)
 	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("error fetching image %s from db: %w", imageID, err)
+	}
+
+	batchStatus := models.BatchStatusProcessing
+	query2 := fmt.Sprintf("UPDATE batches SET status = '%s' WHERE batch_id = '%s'", batchStatus, batchUUID)
+	_, err = tx.Exec(query2)
+	if err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("error updating status for batch %s: %w", batchUUID, err)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
 
 	return srcimage, nil
@@ -52,11 +77,49 @@ func (p *processorRepository) InsertImage(imageID string, batchID string, procIm
 		return fmt.Errorf("error parsing image uuid: %w", err)
 	}
 
-	status := models.ImageStatusCompleted
-	query := fmt.Sprintf("UPDATE images SET (image_proc_bw, status, processed_at) = ($1, $2, $3) WHERE image_id = '%s'", imageUUID)
-	_, err = p.db.Exec(query, procImage, status, time.Now())
+	batchUUID, err := uuid.Parse(batchID)
 	if err != nil {
+		return fmt.Errorf("error parsing batch uuid: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := p.db.BeginTx(ctx, nil)
+
+	currentTime := time.Now()
+	imageStatus := models.ImageStatusCompleted
+	query := "UPDATE images SET image_proc_bw = $1, status = $2, processed_at = $3 WHERE image_id = $4"
+	_, err = tx.Exec(query, procImage, imageStatus, currentTime, imageUUID)
+	if err != nil {
+		tx.Rollback()
 		return fmt.Errorf("error inserting updated image %s: %w", imageID, err)
+	}
+
+	batchStatus := models.BatchStatusCompleted
+	batchQuery := `
+		UPDATE batches
+		SET
+			processed_images = processed_images + 1,
+			status = CASE
+				WHEN processed_images + 1 = total_images THEN $1::batch_status
+				ELSE status
+			END,
+			completed_at = CASE
+				WHEN processed_images + 1 = total_images THEN $3
+				ELSE completed_at
+			END
+		WHERE batch_id = $2
+	`
+	_, err = tx.Exec(batchQuery, batchStatus, batchUUID, currentTime)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("error updating batch status %s: %w", batchID, err)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("error committing transaction: %w", err)
 	}
 
 	return nil

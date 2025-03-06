@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/streadway/amqp"
 )
@@ -32,7 +31,7 @@ func ImgWorker(
 				continue
 			}
 
-			srcimage, err := pr.GetImage(batchMessage.Imageid)
+			srcimage, err := pr.GetImage(batchMessage.Imageid, batchMessage.Batchid)
 			if err != nil {
 				errChan <- err
 				continue
@@ -44,13 +43,13 @@ func ImgWorker(
 				continue
 			}
 
-			err = pr.InsertImage(batchMessage.Imageid, batchMessage.Imageid, procImage)
+			err = pr.InsertImage(batchMessage.Imageid, batchMessage.Batchid, procImage)
 			if err != nil {
 				errChan <- err
 				continue
 			}
 
-			time.Sleep(time.Second * 10)
+			// time.Sleep(time.Second * 10)
 			resChan <- job
 
 		case <-shutdown:
@@ -88,6 +87,8 @@ func ResWorker(resChan <-chan amqp.Delivery, shutdown <-chan struct{}, rmqChan *
 }
 
 // TODO fix to handle error messages to queue
+// must updated database status
+// must ack errors
 func ErrWorker(errChan <-chan error, shutdown <-chan struct{}, wg *sync.WaitGroup) {
 
 	for {
