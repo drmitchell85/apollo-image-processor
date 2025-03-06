@@ -4,11 +4,9 @@ import (
 	"apollo-image-processor/internal/models"
 	"apollo-image-processor/internal/processor/imager"
 	procrepository "apollo-image-processor/internal/processor/repository"
-	"database/sql"
 	"encoding/json"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/streadway/amqp"
 )
@@ -18,8 +16,8 @@ func ImgWorker(
 	resChan chan<- amqp.Delivery,
 	errChan chan<- error,
 	shutdown <-chan struct{},
-	db *sql.DB,
 	wg *sync.WaitGroup,
+	pr procrepository.ProcessorRepository,
 ) {
 
 	for {
@@ -29,9 +27,11 @@ func ImgWorker(
 			err := json.Unmarshal(job.Body, &batchMessage)
 			if err != nil {
 				log.Printf("error unmarshalling res: %s", err)
+				errChan <- err
+				continue
 			}
 
-			srcimage, err := procrepository.GetImage(batchMessage.Imageid, db)
+			srcimage, err := pr.GetImage(batchMessage.Imageid, batchMessage.Batchid)
 			if err != nil {
 				errChan <- err
 				continue
@@ -43,15 +43,13 @@ func ImgWorker(
 				continue
 			}
 
-			// fmt.Printf("\nimage %s processed", batchMessage.Imageid)
-
-			err = procrepository.InsertImage(batchMessage.Imageid, procImage, db)
+			err = pr.InsertImage(batchMessage.Imageid, batchMessage.Batchid, procImage)
 			if err != nil {
 				errChan <- err
 				continue
 			}
 
-			time.Sleep(time.Second * 10)
+			// time.Sleep(time.Second * 10)
 			resChan <- job
 
 		case <-shutdown:
@@ -89,6 +87,8 @@ func ResWorker(resChan <-chan amqp.Delivery, shutdown <-chan struct{}, rmqChan *
 }
 
 // TODO fix to handle error messages to queue
+// must updated database status
+// must ack errors
 func ErrWorker(errChan <-chan error, shutdown <-chan struct{}, wg *sync.WaitGroup) {
 
 	for {
@@ -105,35 +105,3 @@ func ErrWorker(errChan <-chan error, shutdown <-chan struct{}, wg *sync.WaitGrou
 		}
 	}
 }
-
-// for job := range jobsChan {
-
-// 	var batchMessage models.BatchMessage
-// 	err := json.Unmarshal(job.Body, &batchMessage)
-// 	if err != nil {
-// 		log.Printf("error unmarshalling res: %s", err)
-// 	}
-
-// 	srcimage, err := procrepository.GetImage(batchMessage.Imageid, db)
-// 	if err != nil {
-// 		errChan <- err
-// 		continue
-// 	}
-
-// 	procImage, err := imager.ProcessImageBW(srcimage)
-// 	if err != nil {
-// 		errChan <- err
-// 		continue
-// 	}
-
-// 	// fmt.Printf("\nimage %s processed", batchMessage.Imageid)
-
-// 	err = procrepository.InsertImage(batchMessage.Imageid, procImage, db)
-// 	if err != nil {
-// 		errChan <- err
-// 		continue
-// 	}
-
-// 	time.Sleep(time.Second * 10)
-// 	resChan <- job
-// }

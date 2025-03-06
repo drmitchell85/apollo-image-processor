@@ -2,6 +2,7 @@ package processorserver
 
 import (
 	"apollo-image-processor/internal/processor/dispatcher"
+	procrepository "apollo-image-processor/internal/processor/repository"
 	"context"
 	"database/sql"
 	"fmt"
@@ -106,7 +107,9 @@ func NewServer() (*ProcessorServer, error) {
 	server.amqp = amqp
 	server.rmqpool = rmqpool
 
-	dispatcher, err := dispatcher.NewDispatcher(db, rmqpool)
+	pr := procrepository.NewProcessorRepository(db)
+
+	dispatcher, err := dispatcher.NewDispatcher(rmqpool, pr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a new dispatcher: %w", err)
 	}

@@ -4,7 +4,8 @@ Added Promtheus and Grafana. Had to mess around with the configurations and lear
 Additionally learned about Docker container ports and how to configure containers to point outside of them to host ports. Will likely need to reconfigure this in the future.
 
 # ToDo
-- API server shutdown and startup refactor
+- status updates for batch jobs
+- handle failed jobs
 - set up error handling for the workers
 - add new monitoring metrics for the worker service
     - USE method

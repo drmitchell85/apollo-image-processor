@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"apollo-image-processor/internal/models"
+	procrepository "apollo-image-processor/internal/processor/repository"
 	"apollo-image-processor/internal/processor/worker"
 	"context"
 	"database/sql"
@@ -21,9 +22,10 @@ type Dispatcher struct {
 	prefetchCount  int
 	shutdown       chan struct{}
 	wg             sync.WaitGroup
+	pr             procrepository.ProcessorRepository
 }
 
-func NewDispatcher(db *sql.DB, rmqpool *sync.Pool) (*Dispatcher, error) {
+func NewDispatcher(rmqpool *sync.Pool, pr procrepository.ProcessorRepository) (*Dispatcher, error) {
 	workerPoolSize, err := strconv.Atoi(os.Getenv("WORKER_POOL_SIZE"))
 	if err != nil {
 		return nil, fmt.Errorf("err setting worker pool size: %w", err)
@@ -37,12 +39,12 @@ func NewDispatcher(db *sql.DB, rmqpool *sync.Pool) (*Dispatcher, error) {
 	shutdown := make(chan struct{})
 
 	return &Dispatcher{
-		db:             db,
 		rmqpool:        rmqpool,
 		workerPoolSize: workerPoolSize,
 		prefetchCount:  prefetchCount,
 		shutdown:       shutdown,
 		wg:             sync.WaitGroup{},
+		pr:             pr,
 	}, nil
 }
 
@@ -100,7 +102,7 @@ func (d *Dispatcher) Start() error {
 	// start up our workers
 	for w := 0; w < d.workerPoolSize; w++ {
 		d.wg.Add(1)
-		go worker.ImgWorker(jobsChan, resChan, errChan, d.shutdown, d.db, &d.wg)
+		go worker.ImgWorker(jobsChan, resChan, errChan, d.shutdown, &d.wg, d.pr)
 	}
 
 	d.wg.Add(1)
