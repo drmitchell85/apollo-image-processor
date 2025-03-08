@@ -38,7 +38,7 @@ func (m *messengerQueue) PublishMessage(batchID string, imageIDs []string) error
 		nil,              // args
 	)
 	if err != nil {
-		return fmt.Errorf("error delcaring queue: %w", err)
+		return fmt.Errorf("error declaring queue: %w", err)
 	}
 
 	for i := 0; i < len(imageIDs); i++ {

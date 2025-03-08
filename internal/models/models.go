@@ -19,8 +19,12 @@ type UploadedFile struct {
 }
 
 type BatchMessage struct {
-	Batchid string
-	Imageid string
+	Batchid      string
+	Imageid      string
+	RetryLimit   int
+	RetryCount   int
+	ErrorMessage string
+	CreatedAt    time.Time
 }
 
 type BatchStatus string
